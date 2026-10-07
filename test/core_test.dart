@@ -159,4 +159,14 @@ void main() {
       expect(s.payload.contains('53317'), isTrue);
     });
   });
+
+  group('二维码往返', () {
+    test('电脑端生成的二维码能被手机端解析', () {
+      final qr = QrSession(ip: '192.168.31.19', port: 53317);
+      final d = ScanService.parseScanResult(qr.payload);
+      expect(d, isNotNull);
+      expect(d!.ip, '192.168.31.19');
+      expect(d.port, 53317);
+    });
+  });
 }

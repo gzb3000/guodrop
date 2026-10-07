@@ -77,7 +77,7 @@ class VersionCheckService {
   ///
   /// **发版时必须和 pubspec.yaml 的 `version:` 一起改。**
   /// 两处不一致会导致「明明装了新版，还是被拦」。
-  static const currentVersion = '0.3.2';
+  static const currentVersion = '0.3.3';
 
   /// 发起检查
   Future<UpdateCheckResult> check() async {

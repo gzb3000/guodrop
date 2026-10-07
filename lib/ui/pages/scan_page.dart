@@ -369,12 +369,23 @@ class _ScanPageState extends State<ScanPage>
     final theme = Theme.of(context);
 
     if (qr == null || state.localIp == null) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            '未检测到局域网地址。\n请确认设备已连接到 WiFi。',
-            textAlign: TextAlign.center,
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '未检测到局域网地址。\n请确认设备已连接到 WiFi 或网线。',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () => state.refreshLocalIp(),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('重新检测'),
+              ),
+            ],
           ),
         ),
       );
@@ -437,6 +448,23 @@ class _ScanPageState extends State<ScanPage>
             ),
             child: Column(
               children: [
+                if (state.localIps.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        for (final ip in state.localIps)
+                          ChoiceChip(
+                            label: Text(ip),
+                            selected: ip == state.localIp,
+                            onSelected: (_) => state.selectLocalIp(ip),
+                          ),
+                      ],
+                    ),
+                  ),
                 SelectableText(
                   '${state.localIp}:${qr.port}',
                   style: theme.textTheme.titleSmall?.copyWith(

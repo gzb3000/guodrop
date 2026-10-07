@@ -82,7 +82,39 @@ class AppState extends ChangeNotifier {
   bool get isRunning => _isRunning;
   String? get errorMessage => _errorMessage;
   String get downloadDir => _downloadDir;
-  QrSession? get qrSession => _qrSession;
+  QrSession? get qrSession {
+    final ip = _localIp;
+    if (ip == null) return null;
+    if (_qrSession == null || _qrSession!.ip != ip) {
+      _qrSession = QrSession(ip: ip, port: Protocol.defaultPort);
+    }
+    return _qrSession;
+  }
+
+  /// 本机所有候选局域网 IP（多网卡时供用户切换二维码里的地址）
+  List<String> get localIps => _localIps;
+  List<String> _localIps = const [];
+
+  /// 重新检测本机 IP（换了网络 / 首次没检测到时）
+  Future<void> refreshLocalIp() async {
+    final ips = await NetworkAddressResolver.listLocalIps();
+    final best = await NetworkAddressResolver.resolveLocalIp();
+    _localIps = [
+      if (best != null) best,
+      ...ips.where((e) => e != best),
+    ];
+    if (_localIp == null || !_localIps.contains(_localIp)) {
+      _localIp = best ?? (ips.isNotEmpty ? ips.first : null);
+    }
+    notifyListeners();
+  }
+
+  /// 用户在二维码页手动选择地址
+  void selectLocalIp(String ip) {
+    if (ip == _localIp) return;
+    _localIp = ip;
+    notifyListeners();
+  }
 
   /// 是否需要强制更新（挡住了整个 App）
   bool get needsForceUpdate => _updateResult?.shouldBlock == true;
@@ -134,6 +166,14 @@ class AppState extends ChangeNotifier {
       final identity = await AppPreferences.loadOrCreateIdentity();
       final ip = await NetworkAddressResolver.resolveLocalIp();
       _localIp = ip;
+      _localIps = await NetworkAddressResolver.listLocalIps();
+      if (ip != null && !_localIps.contains(ip)) _localIps = [ip, ..._localIps];
+      // 二维码会话**立刻**建好，不依赖后面的服务启动是否成功 ——
+      // 以前放在初始化最后一步，HTTP/发现服务任一步抛异常就没有二维码，
+      // 首页能显示 IP，「我的二维码」却提示未检测到局域网地址。
+      if (ip != null) {
+        _qrSession = QrSession(ip: ip, port: Protocol.defaultPort);
+      }
 
       final model = await DeviceInfoHelper.deviceModel();
       final type = DeviceInfoHelper.currentDeviceType();
@@ -202,10 +242,6 @@ class AppState extends ChangeNotifier {
       );
       await _discovery!.start();
 
-      // 5. 准备扫码会话
-      if (ip != null) {
-        _qrSession = QrSession(ip: ip, port: Protocol.defaultPort);
-      }
 
       _isRunning = true;
     } catch (e) {

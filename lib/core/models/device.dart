@@ -254,36 +254,44 @@ class NetworkAddressResolver {
       if (wifiIp != null) return wifiIp;
     }
 
-    final interfaces = await NetworkInterface.list(
-      type: InternetAddressType.IPv4,
-      includeLoopback: false,
-      includeLinkLocal: false,
-    );
+    final all = await listLocalIps();
+    return all.isEmpty ? null : all.first;
+  }
+
+  /// 本机所有可用的局域网 IPv4（已排除回环、链路本地、虚拟网卡），按可能性排序：
+  /// 192.168.x > 10.x > 172.16-31.x。首页、二维码、广播都用这一份结果。
+  static Future<List<String>> listLocalIps() async {
+    final List<NetworkInterface> interfaces;
+    try {
+      interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+        includeLinkLocal: false,
+      );
+    } catch (_) {
+      return const [];
+    }
 
     final candidates = <String>[];
     for (final iface in interfaces) {
       final name = iface.name.toLowerCase();
       if (_isVirtualInterface(name)) continue;
       for (final addr in iface.addresses) {
-        if (addr.isLoopback) continue;
-        if (_isPrivateIp(addr.address)) candidates.add(addr.address);
+        if (addr.isLoopback || addr.isLinkLocal) continue;
+        if (_isPrivateIp(addr.address) && !candidates.contains(addr.address)) {
+          candidates.add(addr.address);
+        }
       }
     }
 
-    if (candidates.isEmpty) return null;
+    int rank(String ip) {
+      if (ip.startsWith('192.168.')) return 0;
+      if (ip.startsWith('10.')) return 1;
+      return 2; // 172.16-31.x.x
+    }
 
-    // 192.168.x.x 最像家庭/办公 WiFi，优先
-    candidates.sort((a, b) {
-      int rank(String ip) {
-        if (ip.startsWith('192.168.')) return 0;
-        if (ip.startsWith('10.')) return 1;
-        return 2; // 172.16-31.x.x
-      }
-
-      return rank(a).compareTo(rank(b));
-    });
-
-    return candidates.first;
+    candidates.sort((a, b) => rank(a).compareTo(rank(b)));
+    return candidates;
   }
 
   /// 通过平台通道向 Android 要 WiFi 的 IPv4 地址
@@ -331,6 +339,11 @@ class NetworkAddressResolver {
       'tun',
       'wsl',
       'bluetooth',
+      'virtual',
+      'vmnet',
+      'zerotier',
+      'tailscale',
+      'npcap',
     ];
     return virtualHints.any(name.contains);
   }
