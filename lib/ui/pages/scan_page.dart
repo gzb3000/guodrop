@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -21,17 +22,44 @@ class _ScanPageState extends State<ScanPage>
   bool _handling = false;
   String? _lastError;
 
+  /// 相机权限状态：null=还在检查；true=已授权；false=被拒
+  bool? _camGranted;
+  bool _permanentlyDenied = false;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
+      if (_tabController.indexIsChanging) return;
       if (_tabController.index == 0) {
-        _startCamera();
+        _ensurePermissionAndStart();
       } else {
         _stopCamera();
       }
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensurePermissionAndStart());
+  }
+
+  /// 先用 permission_handler 拿到相机权限，再创建扫描控制器。
+  ///
+  /// 为什么不交给 mobile_scanner 自己申请：它在 start() 内部弹权限框，
+  /// 弹框会让 App 进入 inactive，MobileScanner 的生命周期回调随即 stop()，
+  /// 与正在进行的 start() 撞车 → 控制器进入错误状态，只剩黑屏 + 「!」。
+  Future<void> _ensurePermissionAndStart() async {
+    if (_cameraController != null) return;
+    var st = await Permission.camera.status;
+    if (!st.isGranted) st = await Permission.camera.request();
+    if (!mounted) return;
+    if (!st.isGranted) {
+      setState(() {
+        _camGranted = false;
+        _permanentlyDenied = st.isPermanentlyDenied || st.isRestricted;
+      });
+      return;
+    }
+    _camGranted = true;
+    if (_tabController.index != 0) return;
     _startCamera();
   }
 
@@ -40,19 +68,93 @@ class _ScanPageState extends State<ScanPage>
     _cameraController = MobileScannerController(
       detectionSpeed: DetectionSpeed.noDuplicates,
       facing: CameraFacing.back,
+      formats: const [BarcodeFormat.qrCode],
     );
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _stopCamera() {
-    _cameraController?.dispose();
+    final c = _cameraController;
     _cameraController = null;
-    setState(() {});
+    c?.dispose();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _restartCamera() async {
+    _stopCamera();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (mounted) await _ensurePermissionAndStart();
+  }
+
+  Widget _cameraMessage(String title, String detail, {bool settings = false}) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.no_photography_outlined, color: Colors.white70, size: 48),
+              const SizedBox(height: 14),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text(detail,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  if (settings)
+                    FilledButton.icon(
+                      onPressed: () async {
+                        await openAppSettings();
+                      },
+                      icon: const Icon(Icons.settings, size: 18),
+                      label: const Text('去设置开启相机权限'),
+                    ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                    onPressed: _restartCamera,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('重试'),
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                    onPressed: _showManualInput,
+                    icon: const Icon(Icons.keyboard, size: 18),
+                    label: const Text('手动输入 IP'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _scannerError(BuildContext context, MobileScannerException e, Widget? _) {
+    if (e.errorCode == MobileScannerErrorCode.permissionDenied) {
+      return _cameraMessage('没有相机权限', '扫码需要使用相机，请在系统设置中允许 GUODROP 使用相机。', settings: true);
+    }
+    final detail = [
+      e.errorCode.name,
+      if (e.errorDetails?.code != null) e.errorDetails!.code,
+      if (e.errorDetails?.message != null) e.errorDetails!.message!,
+    ].join(' · ');
+    return _cameraMessage('相机启动失败', '错误信息：$detail\n可点「重试」，或改用手动输入 IP。');
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
+    _cameraController = null;
     _tabController.dispose();
     super.dispose();
   }
@@ -83,9 +185,21 @@ class _ScanPageState extends State<ScanPage>
   // ---- Tab 1: 扫描 ----
 
   Widget _buildScanner() {
+    if (_camGranted == false) {
+      return _cameraMessage(
+        '没有相机权限',
+        _permanentlyDenied
+            ? '相机权限已被拒绝，请到系统设置 → 应用 → GUODROP → 权限 中开启相机。'
+            : '扫码需要使用相机，请允许 GUODROP 使用相机。',
+        settings: true,
+      );
+    }
     final controller = _cameraController;
     if (controller == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
     return Stack(
@@ -93,6 +207,7 @@ class _ScanPageState extends State<ScanPage>
         MobileScanner(
           controller: controller,
           onDetect: _onDetect,
+          errorBuilder: _scannerError,
         ),
 
         // 取景框

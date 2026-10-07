@@ -40,7 +40,7 @@ class Protocol {
   /// 阈值放宽的代价只是「对方真的关了 App，列表里多留 30 秒」，
   /// 远比「明明还在线却搜不到」可接受。而且超时后还有 HTTP 兜底确认
   /// （见 DiscoveryService._confirmLost）。
-  static const int deviceTimeoutMs = 30000;
+  static const int deviceTimeoutMs = 45000;
 
   /// 文件分块大小 — 1MB 是吞吐与内存占用的平衡点
   ///

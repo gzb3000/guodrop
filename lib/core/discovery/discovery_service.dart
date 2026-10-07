@@ -49,7 +49,12 @@ class DiscoveryService {
   ///
   /// 避免每次收到广播都回一发 HTTP（每 3 秒一次，太吵）。
   /// 一个设备回一次就够——对方收到后也会把本机登记进它的列表。
-  final Set<String> _registered = {};
+  final Map<String, DateTime> _registered = {};
+
+  /// 对每个已知设备做 HTTP /register 心跳的间隔。
+  /// 组播/广播在很多路由器和手机上只单向可达，单播心跳保证双方列表互相保持。
+  static const _registerInterval = Duration(seconds: 10);
+  Timer? _heartbeatTimer;
 
   /// 本机所有私有网段的广播地址，缓存下来避免每次 annouce 都重新枚举网卡
   List<InternetAddress> _broadcastTargets = const [];
@@ -104,6 +109,12 @@ class DiscoveryService {
         (_) => _announce(),
       );
 
+      // 单播心跳：定期向所有已知设备 /register，互相刷新在线状态
+      _heartbeatTimer = Timer.periodic(
+        _registerInterval,
+        (_) => _heartbeatAll(),
+      );
+
       // 定时清理超时离线的设备
       _cleanupTimer = Timer.periodic(
         const Duration(seconds: 5),
@@ -120,6 +131,8 @@ class DiscoveryService {
   Future<void> stop() async {
     _announceTimer?.cancel();
     _cleanupTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     _announceTimer = null;
     _cleanupTimer = null;
 
@@ -249,12 +262,9 @@ class DiscoveryService {
 
       final device = Device.fromJson(json, ip: datagram.address.address);
 
-      final existed = _devices.containsKey(device.fingerprint);
       _devices[device.fingerprint] = device;
-
-      if (!existed) {
-        onDeviceFound?.call(device);
-      }
+      // 每次都通知：保证 UI 层的列表和发现层始终一致（UI 侧是幂等的覆盖写）
+      onDeviceFound?.call(device);
 
       // 关键：回发一次 HTTP 单播，确保对方也能发现本机。
       //
@@ -263,13 +273,35 @@ class DiscoveryService {
       // 补一发单播 HTTP，让对方把我的信息登记进它的列表。
       //
       // 每台设备只回一次，避免每 3 秒一次的广播造成 HTTP 风暴。
-      if (!_registered.contains(device.fingerprint)) {
-        _registered.add(device.fingerprint);
-        unawaited(_registerWith(device));
-      }
+      _maybeRegister(device);
     } catch (_) {
       // 收到非法数据包（可能来自其他程序），静默忽略
     }
+  }
+
+  /// 距上次登记超过心跳间隔才再发，避免每次广播都打 HTTP
+  void _maybeRegister(Device device, {bool force = false}) {
+    final last = _registered[device.fingerprint];
+    final now = DateTime.now();
+    if (!force && last != null && now.difference(last) < _registerInterval) return;
+    _registered[device.fingerprint] = now;
+    unawaited(_registerWith(device));
+  }
+
+  void _heartbeatAll({bool force = false}) {
+    for (final d in _devices.values.toList()) {
+      _maybeRegister(d, force: force);
+    }
+  }
+
+  /// 外部（HTTP /register、/prepare-upload）确认某设备在线时调用：
+  /// 登记或刷新它的 lastSeen，不会因为 UDP 丢包把它淘汰。
+  void markSeen(Device device) {
+    if (device.fingerprint.isEmpty || device.fingerprint == selfDevice.fingerprint) return;
+    if (device.fingerprint == 'unknown') return;
+    _devices[device.fingerprint] = device.copyWith(lastSeen: DateTime.now());
+    onDeviceFound?.call(device);
+    _maybeRegister(device);
   }
 
   /// 向对端 /register 接口登记本机信息，并把对方的回应登记进设备列表
@@ -383,7 +415,10 @@ class DiscoveryService {
         final body = await response.transform(utf8.decoder).join();
         final json = jsonDecode(body) as Map<String, dynamic>;
         final ip = (json['ip'] as String?) ?? device.ip;
-        _devices[device.fingerprint] = Device.fromJson(json, ip: ip);
+        final alive = Device.fromJson(json, ip: ip);
+        _devices[device.fingerprint] = alive;
+        onDeviceFound?.call(alive);
+        _maybeRegister(device, force: true); // 让对方也刷新我
         return; // 还活着，刷新一下就行
       }
     } catch (_) {
@@ -402,7 +437,16 @@ class DiscoveryService {
   }
 
   /// 对外提供一个立刻重新扫描的动作
-  Future<void> refresh() => _announce();
+  ///
+  /// 重新拿组播锁（Android 后台回来可能被系统收回）、重算广播地址（可能换了 WiFi）、
+  /// 立刻广播并向所有已知设备单播登记。
+  Future<void> refresh() async {
+    if (!_running) return;
+    await MulticastLock.acquire();
+    _broadcastTargets = await _computeBroadcastTargets();
+    await _announce();
+    _heartbeatAll(force: true);
+  }
 
   /// 立刻把某个设备从列表里移除（收到对端下线通知时调用）
   ///

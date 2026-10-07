@@ -64,6 +64,7 @@ class TransferService {
     this.onError,
     this.onPeerSaidBye,
     this.publishFile,
+    this.onPeerSeen,
   });
 
   final Device selfDevice;
@@ -83,6 +84,10 @@ class TransferService {
   /// 可选：落盘后把文件发布到公共目录（Android 用 MediaStore）。
   /// 为 null 时文件直接保存在 [downloadDir]（桌面端）。
   final PublishFileFn? publishFile;
+
+  /// 对端通过 HTTP 主动联系我（/register、/prepare-upload）时触发，
+  /// 用于把它登记 / 刷新进设备列表（UDP 只单向可达时全靠这个）。
+  final void Function(Device device)? onPeerSeen;
 
   HttpServer? _server;
 
@@ -143,6 +148,18 @@ class TransferService {
 
   /// POST /register — 对端主动登记，回传我的信息
   Future<Response> _handleRegister(Request request) async {
+    try {
+      final body = await request.readAsString();
+      if (body.trim().isNotEmpty) {
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        final ip = _remoteIp(request);
+        if (ip != null && json['fingerprint'] != selfDevice.fingerprint) {
+          onPeerSeen?.call(Device.fromJson(json, ip: ip));
+        }
+      }
+    } catch (_) {
+      // body 不合法也照常回自己的信息
+    }
     return Response.ok(
       jsonEncode(selfDevice.toJsonWithIp()),
       headers: {'Content-Type': 'application/json'},
@@ -225,6 +242,8 @@ class TransferService {
         files: files,
         totalBytes: totalBytes,
       );
+
+      if (senderInfo != null && senderIp != 'unknown') onPeerSeen?.call(sender);
 
       _sessions[sessionId] = session;
       _approvedUploads[sessionId] = files.map((f) => f.id).toSet();
@@ -606,6 +625,14 @@ send.onclick=async()=>{
   }
 
   // ==================== 工具 ====================
+
+  static String? _remoteIp(Request request) {
+    try {
+      final connInfo = request.context['shelf.io.connection_info'];
+      if (connInfo is HttpConnectionInfo) return connInfo.remoteAddress.address;
+    } catch (_) {}
+    return null;
+  }
 
   /// 清洗文件名，防止路径穿越攻击
   static String _sanitizeFileName(String name) {

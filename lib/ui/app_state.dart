@@ -180,6 +180,7 @@ class AppState extends ChangeNotifier {
         },
         // 对端通过 HTTP 主动告知下线 —— 立刻从列表移除
         onPeerSaidBye: _removeDeviceByFingerprint,
+        onPeerSeen: (d) => _discovery?.markSeen(d),
       );
       await _transfer!.startServer();
 
@@ -244,6 +245,9 @@ class AppState extends ChangeNotifier {
   /// 两条通道都会走到这里：HTTP 的 /bye 和 UDP 的 bye 包。
   /// 重复调用是安全的。
   void _removeDeviceByFingerprint(String fingerprint) {
+    // 必须同步删掉发现层的记录，否则发现层以为「已存在」，
+    // 之后再收到它的广播也不会通知 UI，设备就再也回不来了。
+    _discovery?.removeDevice(fingerprint);
     final existed = _devices.remove(fingerprint);
     if (existed != null) {
       notifyListeners();
@@ -326,6 +330,7 @@ class AppState extends ChangeNotifier {
   }
 
   void removeDevice(Device device) {
+    _discovery?.removeDevice(device.fingerprint);
     _devices.remove(device.fingerprint);
     notifyListeners();
   }
@@ -344,6 +349,7 @@ class AppState extends ChangeNotifier {
     final alive = await _transfer!.isAlive(target);
     if (!alive) {
       // 已经死了 —— 立刻从列表移除，并给出明确提示
+      _discovery?.removeDevice(target.fingerprint);
       _devices.remove(target.fingerprint);
       _errorMessage = '${target.alias} 已离线，请重新选择设备';
       notifyListeners();
@@ -377,6 +383,7 @@ class AppState extends ChangeNotifier {
     if (!ok) {
       final stillAlive = await _transfer!.isAlive(target);
       if (!stillAlive) {
+        _discovery?.removeDevice(target.fingerprint);
         _devices.remove(target.fingerprint);
         _errorMessage = '${target.alias} 已离线';
         notifyListeners();
@@ -451,6 +458,7 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       },
       onPeerSaidBye: _removeDeviceByFingerprint,
+      onPeerSeen: (d) => _discovery?.markSeen(d),
     );
     await _transfer!.startServer();
 

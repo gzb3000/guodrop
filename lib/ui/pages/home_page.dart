@@ -57,24 +57,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (appState == null) return;
 
     switch (state) {
-      case AppLifecycleState.paused:
       case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
-        // App 退到后台 / 正在被销毁。
+        // 只有真正销毁时才告别。
         //
-        // 这里**不能**调 shutdown() —— 把发现服务停了，用户切回前台
-        // 就得重新初始化。只做「打个招呼」，服务保持运行。
-        //
-        // 手机上这一瞬间还能发网络请求（进程还没被杀），够发完 bye 包。
+        // 以前 paused/hidden 也发 bye：手机上选文件、打开文件管理器、
+        // 锁屏一下都会进 paused，电脑端收到 bye 立刻删掉手机，而手机这边
+        // 认为已经登记过、不再单播 → 电脑上手机就「消失」了。
+        // 划掉 App 的情况由 MainActivity.onDestroy 原生补发下线包兜底。
         appState.notifyPeersGoingAway();
-
-      case AppLifecycleState.resumed:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
       case AppLifecycleState.inactive:
-        // 切回前台不需要做什么，服务一直在跑。
-        // 顺便刷一下设备列表，把后台期间错过的广播补回来。
-        if (state == AppLifecycleState.resumed) {
-          appState.refreshDevices();
-        }
+        break;
+      case AppLifecycleState.resumed:
+        // 回到前台：重新拿组播锁、广播并向已知设备单播登记
+        appState.refreshDevices();
     }
   }
 
