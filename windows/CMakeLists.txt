@@ -6,6 +6,10 @@ project(lan_share LANGUAGES CXX)
 # the on-disk name of your application.
 set(BINARY_NAME "lan_share")
 
+# permission_handler_windows 用了 <experimental/coroutine>，新版 MSVC（VS 2026 / v14.5x）
+# 会直接报 STL1011 错误。全局加这个宏让插件继续编译（对其它代码无影响）。
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
