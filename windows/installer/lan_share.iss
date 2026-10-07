@@ -1,4 +1,4 @@
-; Inno Setup 安装脚本 —— 由 .github/workflows/release.yml 调用
+﻿; Inno Setup 安装脚本 —— 由 .github/workflows/release.yml 调用
 ;   iscc /DAppVersion=0.2.0 /DSourceDir=build\windows\x64\runner\Release windows\installer\lan_share.iss
 ; 产物：build\installer\guodrop-windows-setup.exe（文件名与自动更新地址一致，勿改）
 ;
@@ -34,7 +34,7 @@ UninstallDisplayIcon={app}\lan_share.exe
 WizardStyle=modern
 
 [Languages]
-Name: "chs"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chs"; MessagesFile: "ChineseSimplified.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
