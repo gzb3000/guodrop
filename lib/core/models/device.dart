@@ -196,6 +196,9 @@ class FileMeta {
   /// 接收端保存后的路径
   final String? savedPath;
 
+  /// 接收端保存后的 content:// URI（Android MediaStore），用于直接打开文件
+  final String? savedUri;
+
   const FileMeta({
     required this.id,
     required this.fileName,
@@ -203,6 +206,7 @@ class FileMeta {
     this.mimeType,
     this.localPath,
     this.savedPath,
+    this.savedUri,
   });
 
   factory FileMeta.fromJson(Map<String, dynamic> json) => FileMeta(

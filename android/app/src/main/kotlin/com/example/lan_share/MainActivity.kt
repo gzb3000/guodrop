@@ -1,6 +1,13 @@
 package com.example.lan_share
 
+import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -67,6 +74,7 @@ class MainActivity : FlutterActivity() {
     private val multicastChannelName = "lan_share/multicast"
     private val networkChannelName = "lan_share/network"
     private val installerChannelName = "lan_share/installer"
+    private val storageChannelName = "lan_share/storage"
 
     private var multicastLock: WifiManager.MulticastLock? = null
 
@@ -118,6 +126,40 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, networkChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getWifiIp" -> result.success(getWifiIpAddress())
+                else -> result.notImplemented()
+            }
+        }
+
+        // ---- 公共存储：收到的文件放到 下载/GUODROP ----
+        MethodChannel(messenger, storageChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "sdkInt" -> result.success(Build.VERSION.SDK_INT)
+                "publicDir" -> result.success(publicDirFile().absolutePath)
+                "publish" -> {
+                    val path = call.argument<String>("path")
+                    val name = call.argument<String>("name")
+                    val mime = call.argument<String>("mime")
+                    if (path.isNullOrBlank() || name.isNullOrBlank()) {
+                        result.error("BAD_ARGS", "缺少 path/name", null)
+                    } else {
+                        // 大文件复制可能要几秒，放到后台线程，完成后回主线程回复
+                        Thread {
+                            val r = try { publishToDownloads(File(path), name, mime) } catch (e: Exception) { null }
+                            runOnUiThread {
+                                if (r != null) result.success(r)
+                                else result.error("PUBLISH_FAILED", "保存到下载目录失败", null)
+                            }
+                        }.start()
+                    }
+                }
+                "openFolder" -> result.success(openPublicFolder())
+                "openFile" -> result.success(
+                    openReceivedFile(
+                        call.argument<String>("uri"),
+                        call.argument<String>("path"),
+                        call.argument<String>("mime"),
+                    )
+                )
                 else -> result.notImplemented()
             }
         }
@@ -227,6 +269,121 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             "拉起安装器失败：${e.message}"
         }
+    }
+
+    // ==================== 公共存储 ====================
+
+    private val publicFolder = "GUODROP"
+
+    @Suppress("DEPRECATION")
+    private fun publicDirFile(): File = File(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+        publicFolder,
+    )
+
+    private fun guessMime(name: String, given: String?): String {
+        if (!given.isNullOrBlank() && given.contains('/') && given != "application/octet-stream") return given
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: (given ?: "application/octet-stream")
+    }
+
+    /**
+     * 把暂存文件复制到 下载/GUODROP。
+     * API 29+：MediaStore.Downloads（无需权限，IS_PENDING 保证别的 App 看不到半截文件）；
+     * API 24–28：直接写公共目录 + MediaScanner 入库（相册可见）。
+     */
+    private fun publishToDownloads(src: File, name: String, mimeIn: String?): Map<String, String>? {
+        if (!src.exists()) return null
+        val mime = guessMime(name, mimeIn)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + publicFolder)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val uri = resolver.insert(collection, values) ?: return null
+            try {
+                resolver.openOutputStream(uri, "w")?.use { out ->
+                    src.inputStream().use { it.copyTo(out, 256 * 1024) }
+                } ?: throw IllegalStateException("openOutputStream null")
+                val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+                resolver.update(uri, done, null, null)
+            } catch (e: Exception) {
+                try { resolver.delete(uri, null, null) } catch (_: Exception) {}
+                return null
+            }
+            // 系统可能因重名自动改名（xxx (1).jpg），取回真实文件名
+            var finalName = name
+            try {
+                resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) finalName = c.getString(0) ?: name
+                }
+            } catch (_: Exception) {}
+            return mapOf("path" to File(publicDirFile(), finalName).absolutePath, "uri" to uri.toString())
+        } else {
+            val dir = publicDirFile()
+            if (!dir.exists() && !dir.mkdirs()) return null
+            val dot = name.lastIndexOf('.')
+            val stem = if (dot > 0) name.substring(0, dot) else name
+            val ext = if (dot > 0) name.substring(dot) else ""
+            var target = File(dir, name)
+            var i = 1
+            while (target.exists()) { target = File(dir, "$stem ($i)$ext"); i++ }
+            src.inputStream().use { input -> target.outputStream().use { input.copyTo(it, 256 * 1024) } }
+            MediaScannerConnection.scanFile(this, arrayOf(target.absolutePath), arrayOf(mime), null)
+            return mapOf("path" to target.absolutePath, "uri" to "")
+        }
+    }
+
+    private fun tryStart(intent: Intent): Boolean = try {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    /** 在系统文件管理器里打开 下载/GUODROP，逐级降级 */
+    private fun openPublicFolder(): Boolean {
+        try { publicDirFile().mkdirs() } catch (_: Exception) {}
+        val docId = "primary:" + Environment.DIRECTORY_DOWNLOADS + "/" + publicFolder
+        val dirUri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", docId)
+        // 1) 系统「文件」(DocumentsUI) 直接定位到目录
+        val view = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(dirUri, DocumentsContract.Document.MIME_TYPE_DIR)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        if (tryStart(Intent(view).setPackage("com.google.android.documentsui"))) return true
+        if (tryStart(Intent(view).setPackage("com.android.documentsui"))) return true
+        if (tryStart(view)) return true
+        // 2) 各家文件管理器常见的 resource/folder 方式
+        val folder = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(publicDirFile().absolutePath), "resource/folder")
+        }
+        if (folder.resolveActivity(packageManager) != null && tryStart(folder)) return true
+        // 3) 退回系统「下载」
+        return tryStart(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+    }
+
+    /** 用默认应用打开收到的文件 */
+    private fun openReceivedFile(uriStr: String?, path: String?, mimeIn: String?): Boolean {
+        val uri: Uri = when {
+            !uriStr.isNullOrBlank() -> Uri.parse(uriStr)
+            !path.isNullOrBlank() -> try {
+                FileProvider.getUriForFile(this, "$packageName.fileprovider", File(path))
+            } catch (_: Exception) { return false }
+            else -> return false
+        }
+        val name = path?.substringAfterLast('/') ?: ""
+        val mime = guessMime(name, mimeIn)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return tryStart(Intent.createChooser(intent, "打开文件"))
     }
 
     /**

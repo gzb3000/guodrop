@@ -1,14 +1,15 @@
 import 'dart:io';
 
+import 'public_storage.dart';
+
 /// 用系统文件管理器打开一个目录 / 文件。
 ///
 /// 各平台的做法完全不同，所以这里按平台分支：
 ///   - Windows : explorer.exe "<path>"   （explorer 对路径里的空格很敏感，必须带引号）
 ///   - macOS   : open "<path>"
 ///   - Linux   : xdg-open "<path>"
-///   - Android : 没有通用的「打开文件管理器到某目录」Intent，
-///               各家 ROM 支持程度不一，所以直接返回 false，
-///               由调用方退回到「显示路径文本」的兜底方案。
+///   - Android : 走 PublicStorage（原生 Intent 打开「下载/GUODROP」，
+///               失败时依次退回下载管理器），见 MainActivity.kt
 ///   - iOS     : 同上，返回 false。
 ///
 /// 返回值：是否成功把打开动作交给系统。
@@ -22,18 +23,47 @@ class ShellOpen {
   /// 桌面三平台支持；Android / iOS 上没有通用方案，返回 false，
   /// 调用方据此隐藏入口按钮，退回到显示路径文本。
   static bool get isSupported =>
-      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+      Platform.isWindows ||
+      Platform.isMacOS ||
+      Platform.isLinux ||
+      Platform.isAndroid;
 
   /// 在系统文件管理器中打开目录（并尽量选中它）
   static Future<bool> openDirectory(String path) async {
+    if (Platform.isAndroid) return PublicStorage.openFolder();
     if (path.trim().isEmpty) return false;
     return open(path, select: false);
   }
 
   /// 打开文件所在目录，并把这个文件选中高亮
   static Future<bool> revealFile(String filePath) async {
+    if (Platform.isAndroid) return PublicStorage.openFolder();
     if (filePath.trim().isEmpty) return false;
     return open(filePath, select: true);
+  }
+
+  /// 用系统默认应用打开一个已收到的文件
+  static Future<bool> openFile(String? path, {String? uri, String? mime}) async {
+    if (Platform.isAndroid) {
+      return PublicStorage.openFile(uri: uri, path: path, mime: mime);
+    }
+    final p = path?.trim() ?? '';
+    if (p.isEmpty) return false;
+    try {
+      if (Platform.isWindows) {
+        await Process.run('explorer.exe', <String>[p]);
+        return true;
+      }
+      if (Platform.isMacOS) {
+        return (await Process.run('open', <String>[p])).exitCode == 0;
+      }
+      if (Platform.isLinux) {
+        return (await Process.run('xdg-open', <String>[p])).exitCode == 0;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
   }
 
   /// 用系统默认浏览器打开一个网址。

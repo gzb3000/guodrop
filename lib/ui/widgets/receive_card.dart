@@ -86,8 +86,7 @@ class ReceiveCard extends StatelessWidget {
               ],
             ),
             // 收完之后给一个「打开所在目录」的入口。
-            // 桌面端直接调文件管理器；移动端 ShellOpen 会返回 false，
-            // 这时按钮不显示（Android 上没有通用的打开目录方案）。
+            // 桌面端直接调文件管理器；Android 打开「下载/GUODROP」。
             if (done && _canOpen) _buildOpenButton(context, theme),
           ],
         ),

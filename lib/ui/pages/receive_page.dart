@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/utils/shell_open.dart';
 import '../app_state.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/receive_card.dart';
@@ -22,19 +23,7 @@ class ReceivePage extends StatelessWidget {
           IconButton(
             tooltip: '接收目录',
             icon: const Icon(Icons.folder_outlined),
-            onPressed: () => showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('文件保存位置'),
-                content: SelectableText(state.downloadDir),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('知道了'),
-                  ),
-                ],
-              ),
-            ),
+            onPressed: () => _openFolder(context, state.downloadDir),
           ),
         ],
       ),
@@ -87,17 +76,26 @@ class ReceivePage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   for (final f in s.files.take(5))
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 2),
-                                      child: Text(
-                                        '· ${f.fileName}'
-                                        '${f.savedPath != null ? '' : ' (待接收)'}',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                          color: theme
-                                              .colorScheme.onSurfaceVariant,
+                                    InkWell(
+                                      onTap: f.savedPath == null
+                                          ? null
+                                          : () => _openFile(context, f.savedPath,
+                                              f.savedUri, f.mimeType),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 4),
+                                        child: Text(
+                                          '· ${f.fileName}'
+                                          '${f.savedPath != null ? '' : (s.isCancelled ? ' (未接收)' : ' (待接收)')}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: f.savedPath != null
+                                                ? theme.colorScheme.primary
+                                                : theme.colorScheme
+                                                    .onSurfaceVariant,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                   if (s.files.length > 5)
@@ -119,6 +117,34 @@ class ReceivePage extends StatelessWidget {
                 ),
               ],
             ),
+    );
+  }
+
+  /// 直接在系统文件管理器打开保存目录；实在打不开才退回显示路径
+  static Future<void> _openFolder(BuildContext context, String dir) async {
+    final ok = await ShellOpen.openDirectory(dir);
+    if (ok || !context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('文件保存位置'),
+        content: SelectableText('无法自动打开文件管理器，请手动前往：\n$dir'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Future<void> _openFile(
+      BuildContext context, String? path, String? uri, String? mime) async {
+    final ok = await ShellOpen.openFile(path, uri: uri, mime: mime);
+    if (ok || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('没有可以打开此文件的应用：${path ?? ''}')),
     );
   }
 }

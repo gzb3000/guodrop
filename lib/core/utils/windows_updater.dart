@@ -6,7 +6,7 @@ import 'dart:io';
 ///   - 安装器按用户级安装（`PrivilegesRequired=lowest`，装在
 ///     `%LOCALAPPDATA%\Programs\lan_share`），不需要管理员权限
 ///   - `/SILENT` 只显示进度条；`/CLOSEAPPLICATIONS` 让安装器等待/关闭旧进程
-///   - 安装器 [Run] 段在装完后自动重新启动 lan_share.exe
+///   - 安装器 [Run] 段在装完后自动重新启动 GUODROP.exe（0.2.0 及以前叫 lan_share.exe）
 ///   - 日志写到 `%TEMP%\lan_share_update.log`
 ///
 /// 安装失败时旧版本文件保持不变（Inno Setup 自带回滚），不会把 App 弄残。

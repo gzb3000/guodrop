@@ -10,6 +10,14 @@ import 'package:uuid/uuid.dart';
 import '../models/device.dart';
 import '../models/protocol.dart';
 
+/// 文件落到公共目录后的结果：[path] 给人看/给桌面端打开，[uri] 给 Android 打开文件
+typedef PublishedFile = ({String path, String? uri});
+
+/// 把暂存目录里已完整写好的文件发布到最终位置（Android：下载/GUODROP）。
+/// 返回 null 表示发布失败。
+typedef PublishFileFn = Future<PublishedFile?> Function(
+    String tempPath, String fileName, String? mimeType);
+
 /// 一次接收中的会话
 class ReceiveSession {
   final String sessionId;
@@ -55,6 +63,7 @@ class TransferService {
     this.onSessionEnded,
     this.onError,
     this.onPeerSaidBye,
+    this.publishFile,
   });
 
   final Device selfDevice;
@@ -70,6 +79,10 @@ class TransferService {
 
   /// 对端主动下线时触发，带上它的指纹
   final void Function(String fingerprint)? onPeerSaidBye;
+
+  /// 可选：落盘后把文件发布到公共目录（Android 用 MediaStore）。
+  /// 为 null 时文件直接保存在 [downloadDir]（桌面端）。
+  final PublishFileFn? publishFile;
 
   HttpServer? _server;
 
@@ -293,14 +306,43 @@ class TransferService {
         await sink.close();
       }
 
-      session.completedFiles += 1;
+      // 校验完整性：声明了大小却没收全（对端中断）→ 当失败处理，不留半截文件
+      if (meta.size > 0 && written < meta.size) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw StateError('文件不完整：${meta.fileName}（$written/${meta.size} 字节）');
+      }
+
+      var savedPath = targetPath;
+      String? savedUri;
+      final publish = publishFile;
+      if (publish != null) {
+        final pub = await publish(targetPath, safeName, meta.mimeType);
+        if (pub == null) {
+          throw StateError('保存到公共目录失败：${meta.fileName}');
+        }
+        savedPath = pub.path;
+        savedUri = pub.uri;
+        if (pub.path != targetPath) {
+          try {
+            await file.delete();
+          } catch (_) {}
+        }
+      }
+
       final received = FileMeta(
         id: meta.id,
         fileName: meta.fileName,
         size: written,
         mimeType: meta.mimeType,
-        savedPath: targetPath,
+        savedPath: savedPath,
+        savedUri: savedUri,
       );
+      // 把清单里的条目替换成「已保存」版本 —— 否则 UI 一直显示「(待接收)」
+      final idx = session.files.indexWhere((f) => f.id == meta!.id);
+      if (idx >= 0) session.files[idx] = received;
+      session.completedFiles += 1;
       onFileReceived?.call(session, received);
 
       if (session.completedFiles >= session.files.length) {
@@ -308,7 +350,7 @@ class TransferService {
         onSessionEnded?.call(session);
       }
 
-      return Response.ok(jsonEncode({'status': 'ok', 'path': targetPath}));
+      return Response.ok(jsonEncode({'status': 'ok', 'path': savedPath}));
     } catch (e) {
       onError?.call('接收文件失败: $e');
       return Response.internalServerError(body: jsonEncode({'error': '$e'}));
@@ -341,7 +383,7 @@ class TransferService {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>局域网文件传输</title>
+<title>GUODROP</title>
 <style>
   body{font-family:system-ui,-apple-system,sans-serif;max-width:560px;
        margin:0 auto;padding:32px 20px;background:#fafafa;color:#222}
@@ -358,7 +400,7 @@ class TransferService {
 </style>
 </head>
 <body>
-<h1>局域网文件传输</h1>
+<h1>GUODROP</h1>
 <p>选择或拖入文件，直接传到这台设备。无需安装任何软件。</p>
 <div class="drop" id="drop">点击选择文件，或把文件拖到这里</div>
 <input type="file" id="picker" multiple hidden>

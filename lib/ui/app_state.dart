@@ -13,6 +13,7 @@ import '../core/transport/transfer_service.dart';
 import '../core/utils/device_info_helper.dart';
 import '../core/utils/multicast_lock.dart';
 import '../core/utils/preferences.dart';
+import '../core/utils/public_storage.dart';
 import '../core/version/version_check_service.dart';
 
 /// 一次发送任务的进度状态
@@ -64,7 +65,12 @@ class AppState extends ChangeNotifier {
   /// 扫码会话
   QrSession? _qrSession;
 
+  /// 给用户看的接收目录（Android 为 下载/GUODROP）
   String _downloadDir = '';
+
+  /// TransferService 实际落盘的目录。Android 上是私有暂存目录，
+  /// 写完整后再由 PublicStorage 发布到公共下载目录。
+  String _stagingDir = '';
 
   /// 版本检查结果。null 表示还没查（或查完了没问题，不需要 UI 处理）
   UpdateCheckResult? _updateResult;
@@ -115,6 +121,14 @@ class AppState extends ChangeNotifier {
     try {
       // 1. 准备下载目录
       _downloadDir = await _resolveDownloadDir();
+      _stagingDir = _downloadDir;
+      if (Platform.isAndroid) {
+        final tmp = await getTemporaryDirectory();
+        final staging = Directory('${tmp.path}${Platform.pathSeparator}incoming');
+        if (!await staging.exists()) await staging.create(recursive: true);
+        _stagingDir = staging.path;
+        unawaited(PublicStorage.ensureWritePermission());
+      }
 
       // 2. 加载或生成本机身份
       final identity = await AppPreferences.loadOrCreateIdentity();
@@ -148,7 +162,8 @@ class AppState extends ChangeNotifier {
       // 3. 启动 HTTP 服务端（接收文件）
       _transfer = TransferService(
         selfDevice: _selfDevice!,
-        downloadDir: _downloadDir,
+        downloadDir: _stagingDir,
+        publishFile: Platform.isAndroid ? PublicStorage.publish : null,
         onSessionStarted: (s) {
           _receiveSessions[s.sessionId] = s;
           notifyListeners();
@@ -422,7 +437,8 @@ class AppState extends ChangeNotifier {
     await _transfer?.stopServer();
     _transfer = TransferService(
       selfDevice: _selfDevice!,
-      downloadDir: _downloadDir,
+      downloadDir: _stagingDir,
+      publishFile: Platform.isAndroid ? PublicStorage.publish : null,
       onSessionStarted: (s) {
         _receiveSessions[s.sessionId] = s;
         notifyListeners();
@@ -482,6 +498,10 @@ class AppState extends ChangeNotifier {
   /// 桌面端优先用系统下载目录；移动端用应用私有目录
   /// （Android 10+ 分区存储下，应用无法随意写公共目录）。
   Future<String> _resolveDownloadDir() async {
+    if (Platform.isAndroid) {
+      final pub = await PublicStorage.publicDir();
+      if (pub != null && pub.isNotEmpty) return pub;
+    }
     if (Platform.isAndroid || Platform.isIOS) {
       final dir = await getApplicationDocumentsDirectory();
       final sub = Directory('${dir.path}${Platform.pathSeparator}LanShare');
@@ -492,7 +512,7 @@ class AppState extends ChangeNotifier {
     try {
       final dir = await getDownloadsDirectory();
       if (dir != null) {
-        final sub = Directory('${dir.path}${Platform.pathSeparator}LanShare');
+        final sub = Directory('${dir.path}${Platform.pathSeparator}GUODROP');
         if (!await sub.exists()) await sub.create(recursive: true);
         return sub.path;
       }

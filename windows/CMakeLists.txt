@@ -4,7 +4,7 @@ project(lan_share LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "lan_share")
+set(BINARY_NAME "GUODROP")
 
 # permission_handler_windows 用了 <experimental/coroutine>，新版 MSVC（VS 2026 / v14.5x）
 # 会直接报 STL1011 错误。全局加这个宏让插件继续编译（对其它代码无影响）。

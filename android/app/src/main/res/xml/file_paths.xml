@@ -6,4 +6,6 @@
 <paths>
     <cache-path name="update_apk" path="update/" />
     <files-path name="update_apk_files" path="update/" />
+    <!-- Android 9 及以下：收到的文件在 Download/GUODROP，用于「点击打开文件」 -->
+    <external-path name="guodrop_downloads" path="Download/GUODROP/" />
 </paths>
