@@ -88,14 +88,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return ForceUpdateScreen(result: state.updateResult!);
     }
 
-    // 可选更新（latestVersion 更高但不低于 minVersion，且 forceUpdate=false）：
-    // 用同一个更新页，但允许「以后再说」。
-    if (state.hasOptionalUpdate) {
-      return ForceUpdateScreen(
-        result: state.updateResult!,
-        onSkip: state.dismissOptionalUpdate,
-      );
-    }
 
     if (state.isInitializing) {
       return const Scaffold(

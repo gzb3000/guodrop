@@ -123,9 +123,8 @@ class VersionCheckService {
 
       if (current < info.latest) {
         return UpdateCheckResult(
-          status: info.forceUpdate
-              ? UpdateStatus.required
-              : UpdateStatus.optional,
+          // 规则：低于 latestVersion 一律强制更新（忽略 forceUpdate=false）
+          status: UpdateStatus.required,
           info: info,
           currentVersion: currentRaw,
         );

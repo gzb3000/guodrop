@@ -66,6 +66,16 @@ async function handleVersion(env) {
         }
       }
     }
+    // 规则：只要有新版本就强制更新 —— minVersion 恒等于 latestVersion，forceUpdate 恒为 true。
+    // 以后发版只需改 KV 里的 latestVersion。
+    const latest = data.latestVersion ?? data.latest;
+    if (latest) {
+      data.latestVersion = String(latest);
+      data.minVersion = String(latest);
+      delete data.latest;
+      delete data.minimum;
+    }
+    data.forceUpdate = true;
     return json(data, 200);
   } catch (e) {
     return json({ error: 'KV_READ_FAILED', detail: String(e) }, 500);

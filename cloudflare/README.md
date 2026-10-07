@@ -322,3 +322,18 @@ lan_share/lib/ui/app_state.dart
 
 Release 资产固定文件名（由 `.github/workflows/release.yml` 生成）：
 `guodrop-android.apk`、`guodrop-windows-setup.exe`、`guodrop-windows.zip`
+
+---
+
+## 九、强制更新规则（2026-10-07 起）
+
+**只要 `latestVersion` 比 App 新，就一律强制更新，没有「以后再说」。**
+
+- Worker 在返回前**强制改写**：`minVersion = latestVersion`、`forceUpdate = true`，
+  不管 KV 里写的是什么。所以以后发版**只需要改 KV 里的 `latestVersion`**（和 `message`）。
+- App 端也同样执行：本机版本 < `latestVersion` 一律显示强制更新页（`UpdateStatus.optional` 不再产生）。
+- 「查不到版本就放行」的规则不变（断网 / 接口挂了不会拦人）。
+- ⚠️ 先确认 GitHub Release 资产已上传可下载，**再**改 `latestVersion`，否则老用户会被拦住却下不到包。
+
+发版流程：`tools/bump_version.sh x.y.z N` → commit → `git tag vx.y.z && git push --tags`
+→ 等 Actions 生成 Release → 改 KV `latestVersion`。

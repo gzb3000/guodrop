@@ -12,10 +12,10 @@ import '../../core/version/version_check_service.dart';
 /// 更新阶段
 enum UpdatePhase { idle, needPermission, downloading, downloaded, installing, failed }
 
-/// 更新页（强制拦截 / 可选更新共用）
+/// 强制更新页
 ///
-/// - 强制更新（`onSkip == null`）：整页盖住 App，只能更新或退出。
-/// - 可选更新（传了 `onSkip`）：多一个「以后再说」。
+/// 规则：只要服务端有更高的 latestVersion，就整页盖住 App，只能更新或退出
+/// （没有「以后再说」）。
 ///
 /// 按平台的「立即更新」行为：
 ///   - Android：App 内下载 APK（进度条、可取消）→ 拉起系统安装器
@@ -28,7 +28,6 @@ class ForceUpdateScreen extends StatefulWidget {
     super.key,
     required this.result,
     this.onExit,
-    this.onSkip,
   });
 
   final UpdateCheckResult result;
@@ -36,8 +35,6 @@ class ForceUpdateScreen extends StatefulWidget {
   /// 点「退出」时的回调（不传就不显示）
   final VoidCallback? onExit;
 
-  /// 可选更新时「以后再说」的回调；为 null 表示强制更新
-  final VoidCallback? onSkip;
 
   @override
   State<ForceUpdateScreen> createState() => _ForceUpdateScreenState();
@@ -207,7 +204,6 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
     final info = widget.result.info;
     final current = widget.result.currentVersion ?? '未知';
     final latest = info?.latest.toString() ?? '未知';
-    final optional = widget.onSkip != null;
 
     return PopScope(
       canPop: false,
@@ -228,7 +224,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    optional ? '发现新版本 $latest' : '需要更新才能继续使用',
+                    '需要更新才能继续使用',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w600,
@@ -236,10 +232,8 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    optional
-                        ? '当前版本 $current，建议更新到 $latest。'
-                        : '当前版本 $current 已停止服务，'
-                            '请更新到 $latest 后继续使用。',
+                    '当前版本 $current 已停止服务，'
+                    '请更新到 $latest 后继续使用。',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
@@ -282,11 +276,6 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                     onPressed: _copyLink,
                     child: const Text('复制下载链接'),
                   ),
-                  if (optional && _phase != UpdatePhase.downloading)
-                    TextButton(
-                      onPressed: widget.onSkip,
-                      child: const Text('以后再说'),
-                    ),
                   if (widget.onExit != null) ...[
                     const SizedBox(height: 4),
                     TextButton(

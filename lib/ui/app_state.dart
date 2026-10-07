@@ -84,17 +84,6 @@ class AppState extends ChangeNotifier {
   /// 当前待处理的更新信息
   UpdateCheckResult? get updateResult => _updateResult;
 
-  /// 有可选更新且用户本次启动还没点「以后再说」
-  bool get hasOptionalUpdate =>
-      !_optionalUpdateDismissed &&
-      _updateResult?.status == UpdateStatus.optional;
-  bool _optionalUpdateDismissed = false;
-
-  /// 用户对可选更新点了「以后再说」（仅本次启动内有效）
-  void dismissOptionalUpdate() {
-    _optionalUpdateDismissed = true;
-    notifyListeners();
-  }
 
   List<Device> get devices => _devices.values.toList()
     ..sort((a, b) => a.alias.compareTo(b.alias));
