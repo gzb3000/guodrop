@@ -1,7 +1,7 @@
 name: lan_share
 description: 跨平台 WiFi 局域网文件传输工具 — 组播发现 + HTTP 传输 + 扫码直连
 publish_to: 'none'
-version: 0.3.1+2004
+version: 0.3.2+2005
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

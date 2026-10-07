@@ -52,6 +52,13 @@ android {
         release {
             // Release signing via android/key.properties; falls back to debug keys if absent.
             signingConfig = if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            // 关闭 R8 混淆/裁剪：0.3.1 里 R8 把 ML Kit / CameraX 内部通过反射与
+            // 组件注册加载的类改名或裁掉，扫码启动时报
+            // 「Attempt to invoke virtual method 'n5 g21.a(o5)' on a null object reference」。
+            // Dart 代码不受影响（AOT 编译），只是 APK 略大。另附 keep 规则以防日后重新开启。
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
