@@ -1,0 +1,13 @@
+# 部署：cd cloudflare && wrangler deploy
+name = "lan-share-update"
+main = "worker/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+# 自定义域名 appversion.harvin.top 已通过 API（Workers Custom Domains）绑定到本 Worker。
+# 当前 API token 没有 zone 的 Workers Routes 权限，所以这里不写 routes，避免 deploy 报错。
+# routes = [ { pattern = "appversion.harvin.top", custom_domain = true } ]
+
+[[kv_namespaces]]
+binding = "VERSION_KV"
+id = "eca9c2e8a96240028b5b086fd613ae80"   # lan_share_version

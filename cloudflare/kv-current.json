@@ -1,0 +1,13 @@
+{
+  "latestVersion": "0.2.0",
+  "minVersion": "0.1.0",
+  "forceUpdate": false,
+  "message": "本次更新：新增 App 内自动下载更新（Android 下载后拉起系统安装器；Windows 自动安装并重启），修复手机退出后电脑端不清理设备的问题。",
+  "githubRepo": "gzb3000/guodrop",
+  "urls": {
+    "android": "https://github.com/{githubRepo}/releases/latest/download/guodrop-android.apk",
+    "windows": "https://github.com/{githubRepo}/releases/latest/download/guodrop-windows-setup.exe",
+    "ios": "",
+    "macos": ""
+  }
+}

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>局域网传输</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>lan_share</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+
+	<!-- ===== 局域网传输必需的关键配置 ===== -->
+
+	<!-- iOS 14+ 隐私要求：不声明这条，UDP 组播收发会被系统直接拦截，
+	     而且 App 不会报错，只是永远发现不了设备。
+	     这是 iOS 上第一大坑。 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>需要访问本地网络，才能发现同一 WiFi 下的其他设备并传输文件。</string>
+
+	<!-- 声明使用的 Bonjour 服务类型，组播发现需要 -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_localsend._tcp</string>
+		<string>_http._tcp</string>
+	</array>
+
+	<!-- 扫码需要相机权限 -->
+	<key>NSCameraUsageDescription</key>
+	<string>需要使用相机扫描二维码，快速连接对方设备。</string>
+
+	<!-- 保存文件到相册（接收图片时） -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>需要保存接收到的图片到相册。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要访问相册以选择要发送的文件。</string>
+
+	<!-- 明文 HTTP：局域网内我们走 http 而非 https（自签证书在
+	     局域网场景下对用户是负担），所以要允许 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!-- 后台模式：长传输时保持连接 -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+
+	<!-- 支持在文件 App 中打开本 App 的文件 -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIStatusBarHidden</key>
+	<false/>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+</dict>
+</plist>

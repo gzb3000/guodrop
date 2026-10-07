@@ -1,0 +1,137 @@
+# 发布流水线：推送 v* tag（如 v0.2.0）→ 构建 Android APK + Windows 安装器/zip → 上传到 GitHub Release
+#
+# 资产文件名固定（App 自动更新和 Cloudflare KV 里的地址依赖它们，勿改）：
+#   guodrop-android.apk          Android 通用 APK（release 签名）
+#   guodrop-windows-setup.exe    Windows Inno Setup 安装器（App 内自动更新用这个）
+#   guodrop-windows.zip          Windows 免安装版
+# 下载直链：https://github.com/gzb3000/guodrop/releases/latest/download/<文件名>
+#
+# 需要的仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   KEYSTORE_BASE64     base64 后的 lan_share-release.jks
+#   KEYSTORE_PASSWORD   storePassword
+#   KEY_ALIAS           keyAlias（lan_share）
+#   KEY_PASSWORD        keyPassword
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.47.6'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag matches pubspec / currentVersion
+        id: v
+        run: |
+          PUB=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          CUR=$(grep -E "currentVersion = '" lib/core/version/version_check_service.dart | sed -E "s/.*'([0-9.]+)'.*/\1/")
+          echo "pubspec=$PUB currentVersion=$CUR ref=$GITHUB_REF_NAME"
+          [ "$PUB" = "$CUR" ] || { echo "::error::pubspec.yaml 和 version_check_service.dart 版本不一致"; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$PUB" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 pubspec 版本 v$PUB 不一致"; exit 1
+          fi
+          echo "version=$PUB" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          [ -n "$KEYSTORE_BASE64" ] || { echo "::error::缺少 KEYSTORE_BASE64 secret（不签名的 APK 无法覆盖安装）"; exit 1; }
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=$RUNNER_TEMP/release.jks
+          EOF
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter test
+      - run: flutter build apk --release
+      - name: Verify signature
+        run: |
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -1)
+          $APKSIGNER verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+          cp build/app/outputs/flutter-apk/app-release.apk guodrop-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: guodrop-android.apk
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build windows --release
+      - name: Package zip
+        shell: pwsh
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath guodrop-windows.zip
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=${{ needs.check.outputs.version }}" "/DSourceDir=$PWD\build\windows\x64\runner\Release" windows\installer\lan_share.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item build\installer\guodrop-windows-setup.exe .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            guodrop-windows.zip
+            guodrop-windows-setup.exe
+
+  release:
+    needs: [check, android, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: SHA256
+        run: sha256sum guodrop-* | tee SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: GuoDrop ${{ github.ref_name }}
+          make_latest: true
+          files: |
+            guodrop-android.apk
+            guodrop-windows-setup.exe
+            guodrop-windows.zip
+            SHA256SUMS.txt

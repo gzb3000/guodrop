@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 可共享的路径白名单（仅用于把下载好的更新 APK 交给系统安装器）。
+  APK 下载到 cacheDir/update/，所以只开放 cache-path（最小权限）。
+-->
+<paths>
+    <cache-path name="update_apk" path="update/" />
+    <files-path name="update_apk_files" path="update/" />
+</paths>
